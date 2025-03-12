@@ -1,0 +1,30 @@
+@media (max-width: 768px) {
+    #layoutSidenav {
+        display: flex;
+        flex-direction: column;
+    }
+
+    #layoutSidenav_nav {
+        position: absolute;
+        left: -250px;
+        width: 250px;
+        height: 100vh;
+        background: #343a40;
+        transition: left 0.3s ease-in-out;
+        z-index: 1000;
+    }
+
+    #layoutSidenav_nav.show {
+        left: 0;
+    }
+
+    #layoutSidenav_content {
+        margin-left: 0 !important;
+    }
+
+    /* Ajustamos el botón de menú para que sea más fácil de presionar */
+    #sidebarToggle {
+        font-size: 1.5rem;
+        padding: 5px 15px;
+    }
+}
