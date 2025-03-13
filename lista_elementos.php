@@ -174,8 +174,9 @@ $conn->close();
             <main>
                 <div class="container-fluid">
                 <?php
-// Verificar si el usuario ha iniciado sesión
 
+
+// Verificar si el usuario ha iniciado sesión
 if (!isset($_SESSION['usuario'])) {
     header("Location: login.php");
     exit();
@@ -207,29 +208,42 @@ $sql_usuario = "SELECT nombre FROM usuarios WHERE usuario_id = $usuario_id LIMIT
 $result_usuario = $conn->query($sql_usuario);
 $nombre_usuario = ($result_usuario->num_rows > 0) ? $result_usuario->fetch_assoc()['nombre'] : "Usuario desconocido";
 
-// Definir tabla y columna según tipo
+// Consultar permisos del usuario para la entidad seleccionada
+$sql_permisos = "SELECT permiso_materias, permiso_juegos, permiso_proyectos FROM accesos WHERE usuario_id = $usuario_id LIMIT 1";
+$result_permisos = $conn->query($sql_permisos);
+$permisos = ($result_permisos->num_rows > 0) ? $result_permisos->fetch_assoc() : [];
+
+// Determinar los permisos según el tipo
+$permisos_crud = [];
 switch ($tipo) {
     case 'materia':
         $tabla = 'materias';
         $columna_id = 'materia_id';
         $titulo = 'Materias';
+        $permisos_crud = explode(',', $permisos['permiso_materias']);
         break;
     case 'juego':
         $tabla = 'juegos';
         $columna_id = 'juego_id';
         $titulo = 'Juegos';
+        $permisos_crud = explode(',', $permisos['permiso_juegos']);
         break;
     case 'proyecto':
         $tabla = 'proyectos';
         $columna_id = 'proyecto_id';
         $titulo = 'Proyectos';
+        $permisos_crud = explode(',', $permisos['permiso_proyectos']);
         break;
     default:
         echo "Tipo de entidad desconocido.";
         exit();
 }
 
-$conn->close();
+// Verificar permisos individuales
+$puede_crear = in_array('crear', $permisos_crud);
+$puede_leer = in_array('leer', $permisos_crud);
+$puede_actualizar = in_array('actualizar', $permisos_crud);
+$puede_eliminar = in_array('eliminar', $permisos_crud);
 ?>
 
 <!DOCTYPE html>
@@ -239,94 +253,50 @@ $conn->close();
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?php echo $titulo; ?> de <?php echo htmlspecialchars($nombre_usuario); ?></title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/font-awesome/css/font-awesome.min.css" rel="stylesheet">
     <style>
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background-color: #f4f6f9;
         }
         .container {
-            max-width: 1200px;
             margin-top: 30px;
-        }
-        .breadcrumb {
-            background-color: #e9ecef;
-            padding: 10px 20px;
-            border-radius: 5px;
-        }
-        .breadcrumb-item a {
-            color: #007bff;
-            text-decoration: none;
-        }
-        .breadcrumb-item.active {
-            color: #6c757d;
-        }
-        h2 {
-            color: #343a40;
-            font-weight: bold;
-            margin-top: 20px;
-            margin-bottom: 20px;
         }
         .card {
             border-radius: 10px;
             box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
-            transition: transform 0.3s ease;
+        }
+        .btn-success {
+            margin-bottom: 15px;
         }
         .card:hover {
-            transform: scale(1.03);
-        }
-        .card-body {
-            padding: 20px;
-        }
-        .card-title {
-            font-size: 1.25em;
-            color: #495057;
-        }
-        .card-text {
-            color: #6c757d;
-        }
-        .btn-primary {
-            background-color: #007bff;
-            border-color: #007bff;
-        }
-        .btn-primary:hover {
-            background-color: #0056b3;
-            border-color: #004085;
+            transform: scale(1.02);
+            transition: 0.3s;
         }
     </style>
 </head>
 <body>
-
     <div class="container">
         <div class="card">
             <div class="card-body">
-                <!-- Breadcrumb -->
-                <nav aria-label="breadcrumb">
-                    <ol class="breadcrumb">
-                        <li class="breadcrumb-item"><a href="principal.php">Inicio</a></li>
-                        <li class="breadcrumb-item"><a href="menu_usuario.php?usuario_id=<?php echo $usuario_id; ?>"><?php echo htmlspecialchars($nombre_usuario); ?></a></li>
-                        <li class="breadcrumb-item active" aria-current="page"><?php echo $titulo; ?></li>
-                    </ol>
-                </nav>
-
                 <h2><?php echo $titulo; ?> de <?php echo htmlspecialchars($nombre_usuario); ?></h2>
+                
+                <!-- Botón de agregar (solo si tiene permiso) -->
+                <?php if ($puede_crear): ?>
+                    <a href="agregar.php?tipo=<?php echo $tipo; ?>" class="btn btn-success">Agregar <?php echo $titulo; ?></a>
+                <?php endif; ?>
 
                 <div class="row g-4" id="lista-elementos">
                     <!-- Las tarjetas se cargarán aquí -->
                 </div>
-
             </div>
         </div>
     </div>
 
     <script>
-        // Función para cargar los elementos de manera asíncrona
         async function cargarElementos() {
             try {
                 const usuarioId = <?php echo $usuario_id; ?>;
                 const tipo = "<?php echo $tipo; ?>";
 
-                // Hacer la solicitud fetch al servidor para obtener los elementos
                 const response = await fetch(`lista_ajax.php?usuario_id=${usuarioId}&tipo=${tipo}`);
                 if (!response.ok) throw new Error('Error al cargar los datos');
 
@@ -336,26 +306,37 @@ $conn->close();
                     return;
                 }
 
-                // Obtener el contenedor de la lista
                 const listaElementos = document.getElementById('lista-elementos');
 
-                // Si no hay datos, mostrar mensaje
                 if (data.elementos.length === 0) {
                     listaElementos.innerHTML = "<p>No hay elementos disponibles.</p>";
                     return;
                 }
 
-                // Crear las tarjetas en filas de tres
                 listaElementos.innerHTML = "";
                 data.elementos.forEach(item => {
                     const col = document.createElement('div');
                     col.classList.add('col-md-4');
+                    let botones = "";
+
+                    <?php if ($puede_leer): ?>
+                        botones += `<a href="descripcion.php?id=${item.id}&tipo=${tipo}" class="btn btn-primary">Ver</a> `;
+                    <?php endif; ?>
+                    
+                    <?php if ($puede_actualizar): ?>
+                        botones += `<a href="editar.php?id=${item.id}&tipo=${tipo}" class="btn btn-warning">Editar</a> `;
+                    <?php endif; ?>
+                    
+                    <?php if ($puede_eliminar): ?>
+                        botones += `<a href="eliminar.php?id=${item.id}&tipo=${tipo}" class="btn btn-danger">Eliminar</a>`;
+                    <?php endif; ?>
+
                     col.innerHTML = `
-                        <div class="card h-100">
+                        <div class="card">
                             <div class="card-body">
                                 <h5 class="card-title">${item.nombre}</h5>
                                 <p class="card-text">Descripción breve del ${tipo}.</p>
-                                <a href="descripcion.php?id=${item.id}&tipo=${tipo}" class="btn btn-primary">Ver más</a>
+                                ${botones}
                             </div>
                         </div>
                     `;
@@ -367,13 +348,13 @@ $conn->close();
             }
         }
 
-        // Cargar los elementos cuando la página haya cargado
         window.onload = cargarElementos;
     </script>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
+
 
 
 </main>
