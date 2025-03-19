@@ -18,6 +18,78 @@ if (isset($_GET['session_conflict'])) {
     <link rel="stylesheet" href="css/styles.css">
     <!-- Font Awesome para los íconos -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <style>
+        /* Estilos personalizados */
+        body {
+            background: linear-gradient(135deg,rgb(150, 199, 168),rgb(199, 231, 233));
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .card {
+            border-radius: 10px;
+            border: none;
+            box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.2);
+            background: #ffffff;
+            padding: 20px;
+        }
+
+        h3 {
+            color: #333;
+            font-weight: 600;
+            text-align: center;
+        }
+
+        .form-control {
+            border-radius: 5px;
+            border: 1px solid #ddd;
+        }
+
+        .form-control:focus {
+            border-color: #007bff;
+            box-shadow: 0px 0px 5px rgba(0, 123, 255, 0.5);
+        }
+
+        .btn-primary {
+            background-color: #007bff;
+            border: none;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+
+        .btn-primary:hover {
+            background-color: #0056b3;
+        }
+
+        a {
+            color: #007bff;
+            text-decoration: none;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+
+        /* Ícono de ojo para la contraseña */
+        .password-container {
+            position: relative;
+        }
+
+        #toggle-password {
+            position: absolute;
+            top: 50%;
+            right: 10px;
+            transform: translateY(-50%);
+            cursor: pointer;
+            color: #555;
+        }
+
+        #toggle-password:hover {
+            color: #007bff;
+        }
+    </style>
 </head>
 <body class="d-flex justify-content-center align-items-center vh-100">
     <div class="container">
