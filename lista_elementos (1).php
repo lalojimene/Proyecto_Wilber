@@ -228,11 +228,12 @@ $conn->close();
         <div id="layoutSidenav_content">
             <main>
                 <div class="container-fluid">
-                <main><?php
+                <main>
+                <?php
 
 
 // Verificar si el usuario ha iniciado sesión
-if (!isset($_SESSION['usuario'])) {
+if (!isset($_SESSION['usuario_id'])) {
     header("Location: login.php");
     exit();
 }
@@ -249,17 +250,77 @@ if ($conn->connect_error) {
 }
 $conn->set_charset("utf8mb4");
 
-// Obtener datos del usuario
-$sqlUsuario = "SELECT usuario_id, nombre, rol FROM usuarios WHERE nombre = ?";
-$stmtUsuario = $conn->prepare($sqlUsuario);
-$stmtUsuario->bind_param("s", $_SESSION['usuario']);
-$stmtUsuario->execute();
-$resultUsuario = $stmtUsuario->get_result();
-$usuarioActual = $resultUsuario->fetch_assoc();
-$usuarioRol = $usuarioActual['rol'];
+// Obtener el usuario_id de la sesión
+$session_usuario_id = $_SESSION['usuario_id'];
 
-$stmtUsuario->close();
-$conn->close();
+// Obtener el usuario_id y tipo de la URL
+$usuario_id = isset($_GET['usuario_id']) ? (int)$_GET['usuario_id'] : 0;
+$tipo = isset($_GET['tipo']) ? $_GET['tipo'] : '';
+
+// Verificar que el usuario solo acceda a su propio contenido o que sea administrador
+if ($session_usuario_id !== $usuario_id) {
+    echo "No tienes permisos para acceder a esta página.";
+    exit();
+}
+
+if ($usuario_id === 0 || empty($tipo)) {
+    echo "Información incompleta.";
+    exit();
+}
+
+// Consultar nombre del usuario
+$sql_usuario = "SELECT nombre FROM usuarios WHERE usuario_id = ?";
+$stmt = $conn->prepare($sql_usuario);
+$stmt->bind_param("i", $usuario_id);
+$stmt->execute();
+$result_usuario = $stmt->get_result();
+$nombre_usuario = ($result_usuario->num_rows > 0) ? $result_usuario->fetch_assoc()['nombre'] : "Usuario desconocido";
+
+// Consultar permisos del usuario para la entidad seleccionada
+$sql_permisos = "SELECT permiso_materias, permiso_juegos, permiso_proyectos FROM accesos WHERE usuario_id = ?";
+$stmt = $conn->prepare($sql_permisos);
+$stmt->bind_param("i", $usuario_id);
+$stmt->execute();
+$result_permisos = $stmt->get_result();
+$permisos = ($result_permisos->num_rows > 0) ? $result_permisos->fetch_assoc() : [];
+
+// Determinar los permisos según el tipo
+$permisos_crud = [];
+switch ($tipo) {
+    case 'materia':
+        $tabla = 'materias';
+        $columna_id = 'materia_id';
+        $titulo = 'Materias';
+        $permisos_crud = isset($permisos['permiso_materias']) ? explode(',', $permisos['permiso_materias']) : [];
+        break;
+    case 'juego':
+        $tabla = 'juegos';
+        $columna_id = 'juego_id';
+        $titulo = 'Juegos';
+        $permisos_crud = isset($permisos['permiso_juegos']) ? explode(',', $permisos['permiso_juegos']) : [];
+        break;
+    case 'proyecto':
+        $tabla = 'proyectos';
+        $columna_id = 'proyecto_id';
+        $titulo = 'Proyectos';
+        $permisos_crud = isset($permisos['permiso_proyectos']) ? explode(',', $permisos['permiso_proyectos']) : [];
+        break;
+    default:
+        echo "Tipo de entidad desconocido.";
+        exit();
+}
+
+// Verificar si el usuario tiene permisos para ver esta página
+if (empty($permisos_crud)) {
+    echo "No tienes permisos para acceder a esta sección.";
+    exit();
+}
+
+// Verificar permisos individuales
+$puede_crear = in_array('crear', $permisos_crud);
+$puede_leer = in_array('leer', $permisos_crud);
+$puede_actualizar = in_array('actualizar', $permisos_crud);
+$puede_eliminar = in_array('eliminar', $permisos_crud);
 ?>
 
 <!DOCTYPE html>
@@ -267,119 +328,119 @@ $conn->close();
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Búsqueda con Scroll Infinito</title>
+    <title><?php echo $titulo; ?> de <?php echo htmlspecialchars($nombre_usuario); ?></title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <script>
-        let offset = 0;
-        const limit = 3;
-        let loading = false;
-        let allLoaded = false;
-
-        function loadResults() {
-            if (loading || allLoaded) return;
-            loading = true;
-            document.getElementById('loading').style.display = "block"; // Mostrar "Cargando..."
-
-            setTimeout(() => { // Espera 5 segundos antes de cargar los datos
-                let search = document.getElementById('search').value;
-                let categoria = document.getElementById('categoria').value;
-                let resultsDiv = document.getElementById('results');
-
-                fetch(`buscar.php?search=${encodeURIComponent(search)}&categoria=${encodeURIComponent(categoria)}&offset=${offset}`)
-                .then(response => response.json())
-                .then(data => {
-                    document.getElementById('loading').style.display = "none"; // Ocultar "Cargando..."
-
-                    if (data.length > 0) {
-                        data.forEach(item => {
-                            let div = document.createElement('div');
-                            div.classList.add('col-md-4', 'mb-4');
-                            div.innerHTML = `
-                                <div class="card h-100">
-                                    <div class="card-body">
-                                        <h5 class="card-title">${item.nombre}</h5>
-                                        <p class="card-text">${item.descripcion.substring(0, 100)}...</p>
-                                        <a href="descripcion.php?id=${item.id}&tipo=${item.tipo}" class="btn btn-primary">Ver más</a>
-                                    </div>
-                                </div>
-                            `;
-                            resultsDiv.appendChild(div);
-                        });
-                        offset += limit;
-                    } else {
-                        allLoaded = true; // No hay más datos
-                    }
-                })
-                .catch(error => {
-                    document.getElementById('loading').style.display = "none";
-                    console.error('Error:', error);
-                })
-                .finally(() => {
-                    loading = false;
-                });
-            }, 5000); // ⏳ Retraso de 5 segundos antes de cargar los resultados
+    <style>
+        body {
+            background-color: #f4f6f9;
         }
-
-        function resetSearch() {
-            offset = 0;
-            allLoaded = false;
-            document.getElementById('results').innerHTML = "";
-            loadResults();
+        .container {
+            margin-top: 30px;
         }
-
-        window.addEventListener('scroll', function() {
-            if ((window.innerHeight + window.scrollY) >= document.body.offsetHeight - 100) {
-                loadResults();
-            }
-        });
-
-        document.addEventListener("DOMContentLoaded", function() {
-            loadResults();
-        });
-    </script>
+        .card {
+            border-radius: 10px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+        }
+        .btn-success {
+            margin-bottom: 15px;
+        }
+        .card:hover {
+            transform: scale(1.02);
+            transition: 0.3s;
+        }
+    </style>
 </head>
 <body>
-<div class="container mt-4">
-    <h2 class="text-center">Búsqueda con Scroll Infinito</h2>
+    <div class="container">
+        <div class="card">
+            <div class="card-body">
+            <nav aria-label="breadcrumb">
+                    <ol class="breadcrumb">
+                        <li class="breadcrumb-item"><a href="principal.php">Inicio</a></li>
+                        <li class="breadcrumb-item"><a href="menu_usuario.php?usuario_id=<?php echo $usuario_id; ?>"><?php echo htmlspecialchars($nombre_usuario); ?></a></li>
+                        <li class="breadcrumb-item active" aria-current="page"><?php echo $titulo; ?></li>
+                    </ol>
+                </nav>
+                <h2><?php echo $titulo; ?> de <?php echo htmlspecialchars($nombre_usuario); ?></h2>
+                
+                <!-- Botón de agregar (solo si tiene permiso) -->
+                <?php if ($puede_crear): ?>
+                    <a href="agregar.php?tipo=<?php echo $tipo; ?>" class="btn btn-success">Agregar <?php echo $titulo; ?></a>
+                <?php endif; ?>
 
-    <!-- Formulario de Búsqueda -->
-    <div class="card p-3 mb-4">
-        <form onsubmit="event.preventDefault(); resetSearch();">
-            <div class="row">
-                <div class="col-md-4 mb-3">
-                    <label for="categoria" class="form-label">Seleccione Categoría</label>
-                    <select class="form-select" id="categoria">
-                        <option value="todas" selected>Todas</option>
-                        <option value="materias">Materias</option>
-                        <option value="juegos">Juegos</option>
-                        <option value="proyectos">Proyectos</option>
-                    </select>
-                </div>
-
-                <div class="col-md-6 mb-3">
-                    <label for="search" class="form-label">Buscar por Nombre o Descripción</label>
-                    <input type="text" class="form-control" id="search" placeholder="Ingrese nombre o descripción">
-                </div>
-
-                <div class="col-md-2 mb-3">
-                    <button type="submit" class="btn btn-primary mt-4">Buscar</button>
+                <div class="row g-4" id="lista-elementos">
+                    <!-- Las tarjetas se cargarán aquí -->
                 </div>
             </div>
-        </form>
+        </div>
     </div>
 
-    <!-- Resultados -->
-    <div class="row" id="results"></div>
+    <script>
+        async function cargarElementos() {
+            try {
+                const usuarioId = <?php echo $usuario_id; ?>;
+                const tipo = "<?php echo $tipo; ?>";
 
-    <!-- Cargando -->
-    <div id="loading" class="text-center" style="display: none;">
-        <p class="text-primary">Cargando...</p>
-    </div>
-</div>
+                const response = await fetch(`lista_ajax.php?usuario_id=${usuarioId}&tipo=${tipo}`);
+                if (!response.ok) throw new Error('Error al cargar los datos');
 
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+                const data = await response.json();
+                if (data.error) {
+                    console.error(data.error);
+                    return;
+                }
+
+                const listaElementos = document.getElementById('lista-elementos');
+
+                if (data.elementos.length === 0) {
+                    listaElementos.innerHTML = "<p>No hay elementos disponibles.</p>";
+                    return;
+                }
+
+                listaElementos.innerHTML = "";
+                data.elementos.forEach(item => {
+                    const col = document.createElement('div');
+                    col.classList.add('col-md-4');
+                    let botones = "";
+
+                    <?php if ($puede_leer): ?>
+                        botones += `<a href="descripcion.php?id=${item.id}&tipo=${tipo}" class="btn btn-primary">Ver</a> `;
+                    <?php endif; ?>
+                    
+                    <?php if ($puede_actualizar): ?>
+                        botones += `<a href="editar.php?id=${item.id}&tipo=${tipo}" class="btn btn-warning">Editar</a> `;
+                    <?php endif; ?>
+                    
+                    <?php if ($puede_eliminar): ?>
+                        botones += `<a href="eliminar.php?id=${item.id}&tipo=${tipo}" class="btn btn-danger">Eliminar</a>`;
+                    <?php endif; ?>
+
+                    col.innerHTML = `
+                        <div class="card">
+                            <div class="card-body">
+                                <h5 class="card-title">${item.nombre}</h5>
+                                <p class="card-text">Descripción breve del ${tipo}.</p>
+                                ${botones}
+                            </div>
+                        </div>
+                    `;
+                    listaElementos.appendChild(col);
+                });
+            } catch (error) {
+                console.error('Error en la solicitud:', error);
+                alert('Hubo un problema al obtener los datos.');
+            }
+        }
+
+        window.onload = cargarElementos;
+    </script>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
+
+
+
 
 </main>
         </div>

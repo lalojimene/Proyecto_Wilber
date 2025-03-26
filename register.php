@@ -162,7 +162,7 @@ if ($result2 === FALSE) {
                                 <div class="form-check">
                                     <input class="form-check-input" type="checkbox" id="terminos" required>
                                     <label class="form-check-label" for="terminos">
-                                        Acepto los <a href="terminos.php" target="_blank">términos y condiciones</a>
+                                        Acepto los <a href="terminos_y_condiciones.php" target="_blank">términos y condiciones</a>
                                     </label>
                                 </div>
                             </div>
