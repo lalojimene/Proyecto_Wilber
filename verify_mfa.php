@@ -1,6 +1,12 @@
 <?php
 session_start();
 require 'conexion.php';
+require 'config.php'; // Configuración para conexión y envío de correos
+
+use PHPMailer\PHPMailer\PHPMailer;
+use PHPMailer\PHPMailer\Exception;
+
+require 'vendor/autoload.php'; // Incluye PHPMailer
 
 $clave_secreta = "mi_clave_secreta_super_segura";
 
@@ -10,7 +16,7 @@ if (isset($_GET['token']) && isset($_GET['email']) && isset($_GET['nombre'])) {
     $nombre_usuario = $_GET['nombre'];
 
     // Verificar el token en la base de datos
-    $sql = "SELECT usuario_id, nombre, rol, token_expira FROM usuarios WHERE token = ? AND email = ?";
+    $sql = "SELECT usuario_id, nombre, rol, token_expira, sesion_id FROM usuarios WHERE token = ? AND email = ?";
     $stmt = $conn->prepare($sql);
     $stmt->bind_param("ss", $token, $email);
     $stmt->execute();
@@ -21,6 +27,18 @@ if (isset($_GET['token']) && isset($_GET['email']) && isset($_GET['nombre'])) {
         $ahora = new DateTime();
 
         if ($expira > $ahora) {
+            // Comprobar si ya hay una sesión activa en otro dispositivo
+            if (isset($row['sesion_id']) && $row['sesion_id'] !== session_id()) {
+                echo "<script>
+                        if (confirm('Ya tienes una sesión activa en otro dispositivo. ¿Quieres cerrarla y mantener la sesión actual?')) {
+                            window.location.href = 'cerrar_otras_sesiones.php?sesion_id=" . $row['sesion_id'] . "';
+                        } else {
+                            window.location.href = 'login.php';
+                        }
+                      </script>";
+                exit();
+            }
+
             // Mostrar el formulario de verificación
             echo "<h2>Verificación de identidad</h2>";
             echo "<p>Nombre de usuario: <strong>$nombre_usuario</strong></p>";
@@ -48,7 +66,7 @@ if (isset($_POST['verify'])) {
         $nombre_usuario = $_POST['nombre'];
 
         // Obtener el usuario de la base de datos
-        $sql = "SELECT usuario_id, rol FROM usuarios WHERE email = ? AND token = ?";
+        $sql = "SELECT usuario_id, rol, sesion_id FROM usuarios WHERE email = ? AND token = ?";
         $stmt = $conn->prepare($sql);
         $stmt->bind_param("ss", $email, $token);
         $stmt->execute();
@@ -57,6 +75,18 @@ if (isset($_POST['verify'])) {
         if ($row = $result->fetch_assoc()) {
             $usuario_id = $row['usuario_id'];
             $rol = $row['rol'];
+
+            // Verificar si hay una sesión activa en otro dispositivo
+            if (isset($row['sesion_id']) && $row['sesion_id'] !== session_id()) {
+                echo "<script>
+                        if (confirm('Ya tienes una sesión activa en otro dispositivo. ¿Quieres cerrarla y mantener la sesión actual?')) {
+                            window.location.href = 'cerrar_otras_sesiones.php?sesion_id=" . $row['sesion_id'] . "';
+                        } else {
+                            window.location.href = 'login.php';
+                        }
+                      </script>";
+                exit();
+            }
 
             // Generar JWT manualmente
             $header = base64_encode(json_encode(['alg' => 'HS256', 'typ' => 'JWT']));
@@ -68,10 +98,16 @@ if (isset($_POST['verify'])) {
             // Guardar en una cookie segura HTTP-only
             setcookie("jwt", $jwt, time() + 3600, "/", "", false, true);
 
-            // Establecer la sesión
+            // Establecer la sesión y marcarla como activa
             $_SESSION['usuario'] = $nombre_usuario;
             $_SESSION['rol'] = $rol;
             $_SESSION['usuario_id'] = $usuario_id;
+            $_SESSION['sesion_id'] = session_id(); // Guardar la ID de la sesión
+
+            // Actualizar la base de datos con la nueva sesión activa
+            $stmt = $conn->prepare("UPDATE usuarios SET sesion_id = ? WHERE usuario_id = ?");
+            $stmt->bind_param("si", $_SESSION['sesion_id'], $usuario_id);
+            $stmt->execute();
 
             // Redirigir a la página principal
             header("Location: principal.php");

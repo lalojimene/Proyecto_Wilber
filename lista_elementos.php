@@ -1,11 +1,20 @@
 <?php
 session_start();
 
-// Verificar si el usuario ha iniciado sesión
-if (!isset($_SESSION['usuario'])) {
-    header("Location: login.php");
+// Verificar si la sesión de usuario está activa
+if (!isset($_SESSION['usuario_id'])) {
+    // Si no está activa, redirigir al login
+    header("Location: login.php?expired=1");
     exit();
 }
+
+// Obtener la información del usuario desde la sesión
+$usuario_id = $_SESSION['usuario_id'];
+
+// Verificar si la variable 'nombre' está definida en la sesión
+$nombre_usuario = isset($_SESSION['nombre']) ? $_SESSION['nombre'] : 'Usuario no identificado'; // Valor predeterminado si no está definida
+
+$usuarioRol = $_SESSION['rol'] ?? 'Rol no definido'; // También con valor predeterminado
 
 // Conectar a la base de datos
 $servername = "localhost";
@@ -18,13 +27,31 @@ if ($conn->connect_error) {
     die("Conexión fallida: " . $conn->connect_error);
 }
 $conn->set_charset("utf8mb4");
-// Obtener los datos del usuario actual
-$sqlUsuario = "SELECT usuario_id, nombre, rol FROM usuarios WHERE nombre = '" . $_SESSION['usuario'] . "' LIMIT 1";
-$resultUsuario = $conn->query($sqlUsuario);
-$usuarioActual = $resultUsuario->fetch_assoc();
-$usuarioRol = $usuarioActual['rol'];
 
-// Obtener todos los usuarios con rol 'usuario'
+// Consulta para obtener el nombre del usuario
+$sqlUsuario = "SELECT usuario_id, nombre, rol, sesion_id FROM usuarios WHERE usuario_id = ?";
+$stmtUsuario = $conn->prepare($sqlUsuario);
+$stmtUsuario->bind_param("i", $usuario_id);
+$stmtUsuario->execute();
+$resultUsuario = $stmtUsuario->get_result();
+$usuarioActual = $resultUsuario->fetch_assoc();
+
+// Asignar nombre a la sesión
+$_SESSION['nombre'] = $usuarioActual['nombre'];
+
+
+// Verificar si la sesión corresponde con la registrada en la base de datos
+if ($usuarioActual['sesion_id'] !== session_id()) {
+    // Si las sesiones no coinciden, cerrar sesión y mostrar mensaje
+    session_destroy();
+    echo "<script>
+            alert('Tu sesión fue cerrada desde otro dispositivo.');
+            window.location.href = 'login.php';
+          </script>";
+    exit();
+}
+
+// Obtener los usuarios con rol 'usuario'
 $sqlUsuarios = "SELECT usuario_id, nombre FROM usuarios WHERE rol = 'usuario'";
 $resultUsuarios = $conn->query($sqlUsuarios);
 
@@ -39,8 +66,11 @@ while ($usuario = $resultUsuarios->fetch_assoc()) {
         LEFT JOIN materias m ON a.materia_id = m.materia_id
         LEFT JOIN juegos j ON a.juego_id = j.juego_id
         LEFT JOIN proyectos p ON a.proyecto_id = p.proyecto_id
-        WHERE a.usuario_id = " . $usuario['usuario_id'];
-    $resultAccesos = $conn->query($sqlAccesos);
+        WHERE a.usuario_id = ?";
+    $stmtAccesos = $conn->prepare($sqlAccesos);
+    $stmtAccesos->bind_param("i", $usuario['usuario_id']);
+    $stmtAccesos->execute();
+    $resultAccesos = $stmtAccesos->get_result();
 
     $accesos = [];
     while ($row = $resultAccesos->fetch_assoc()) {
@@ -53,8 +83,30 @@ while ($usuario = $resultUsuarios->fetch_assoc()) {
     ];
 }
 
+// Aquí cierras la conexión
 $conn->close();
 ?>
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Página Principal</title>
+
+    <script>
+        // 🔥 Cerrar sesión automáticamente después de 3 minutos (180,000 ms)
+        setTimeout(function () {
+            alert("Tu sesión ha expirado. Serás redirigido al inicio de sesión.");
+            window.location.href = "logout.php";
+        }, 180000); // 3 minutos en milisegundos
+    </script>
+</head>
+<body>
+    
+</body>
+</html>
+
 
 <!DOCTYPE html>
 <html lang="es">
@@ -79,16 +131,19 @@ $conn->close();
         <ul class="navbar-nav ml-auto mr-0 mr-md-3 my-2 my-md-0">
             <li class="nav-item dropdown">
                 <a class="nav-link dropdown-toggle" id="userDropdown" href="#" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
-                    <i class="fas fa-user fa-fw"></i> <?php echo $_SESSION['usuario']; ?>
+                    <i class="fas fa-user fa-fw"></i> <?php echo $nombre_usuario; ?>
                 </a>
                 <div class="dropdown-menu dropdown-menu-right" aria-labelledby="userDropdown">
-                    <a class="dropdown-item" href="#">Configuración</a>
+                    <a class="dropdown-item" href="perfil.php">Configuración</a>
                     <div class="dropdown-divider"></div>
                     <a class="dropdown-item" href="logout.php">Salir</a>
                 </div>
             </li>
         </ul>
     </nav>
+
+
+
 
     <div id="layoutSidenav">
         <!-- Sidebar -->
@@ -173,11 +228,12 @@ $conn->close();
         <div id="layoutSidenav_content">
             <main>
                 <div class="container-fluid">
+                <main>
                 <?php
 
 
 // Verificar si el usuario ha iniciado sesión
-if (!isset($_SESSION['usuario'])) {
+if (!isset($_SESSION['usuario_id'])) {
     header("Location: login.php");
     exit();
 }
@@ -194,9 +250,18 @@ if ($conn->connect_error) {
 }
 $conn->set_charset("utf8mb4");
 
+// Obtener el usuario_id de la sesión
+$session_usuario_id = $_SESSION['usuario_id'];
+
 // Obtener el usuario_id y tipo de la URL
 $usuario_id = isset($_GET['usuario_id']) ? (int)$_GET['usuario_id'] : 0;
 $tipo = isset($_GET['tipo']) ? $_GET['tipo'] : '';
+
+// Verificar que el usuario solo acceda a su propio contenido o que sea administrador
+if ($session_usuario_id !== $usuario_id) {
+    echo "No tienes permisos para acceder a esta página.";
+    exit();
+}
 
 if ($usuario_id === 0 || empty($tipo)) {
     echo "Información incompleta.";
@@ -204,13 +269,19 @@ if ($usuario_id === 0 || empty($tipo)) {
 }
 
 // Consultar nombre del usuario
-$sql_usuario = "SELECT nombre FROM usuarios WHERE usuario_id = $usuario_id LIMIT 1";
-$result_usuario = $conn->query($sql_usuario);
+$sql_usuario = "SELECT nombre FROM usuarios WHERE usuario_id = ?";
+$stmt = $conn->prepare($sql_usuario);
+$stmt->bind_param("i", $usuario_id);
+$stmt->execute();
+$result_usuario = $stmt->get_result();
 $nombre_usuario = ($result_usuario->num_rows > 0) ? $result_usuario->fetch_assoc()['nombre'] : "Usuario desconocido";
 
 // Consultar permisos del usuario para la entidad seleccionada
-$sql_permisos = "SELECT permiso_materias, permiso_juegos, permiso_proyectos FROM accesos WHERE usuario_id = $usuario_id LIMIT 1";
-$result_permisos = $conn->query($sql_permisos);
+$sql_permisos = "SELECT permiso_materias, permiso_juegos, permiso_proyectos FROM accesos WHERE usuario_id = ?";
+$stmt = $conn->prepare($sql_permisos);
+$stmt->bind_param("i", $usuario_id);
+$stmt->execute();
+$result_permisos = $stmt->get_result();
 $permisos = ($result_permisos->num_rows > 0) ? $result_permisos->fetch_assoc() : [];
 
 // Determinar los permisos según el tipo
@@ -220,23 +291,29 @@ switch ($tipo) {
         $tabla = 'materias';
         $columna_id = 'materia_id';
         $titulo = 'Materias';
-        $permisos_crud = explode(',', $permisos['permiso_materias']);
+        $permisos_crud = isset($permisos['permiso_materias']) ? explode(',', $permisos['permiso_materias']) : [];
         break;
     case 'juego':
         $tabla = 'juegos';
         $columna_id = 'juego_id';
         $titulo = 'Juegos';
-        $permisos_crud = explode(',', $permisos['permiso_juegos']);
+        $permisos_crud = isset($permisos['permiso_juegos']) ? explode(',', $permisos['permiso_juegos']) : [];
         break;
     case 'proyecto':
         $tabla = 'proyectos';
         $columna_id = 'proyecto_id';
         $titulo = 'Proyectos';
-        $permisos_crud = explode(',', $permisos['permiso_proyectos']);
+        $permisos_crud = isset($permisos['permiso_proyectos']) ? explode(',', $permisos['permiso_proyectos']) : [];
         break;
     default:
         echo "Tipo de entidad desconocido.";
         exit();
+}
+
+// Verificar si el usuario tiene permisos para ver esta página
+if (empty($permisos_crud)) {
+    echo "No tienes permisos para acceder a esta sección.";
+    exit();
 }
 
 // Verificar permisos individuales
@@ -277,6 +354,13 @@ $puede_eliminar = in_array('eliminar', $permisos_crud);
     <div class="container">
         <div class="card">
             <div class="card-body">
+            <nav aria-label="breadcrumb">
+                    <ol class="breadcrumb">
+                        <li class="breadcrumb-item"><a href="principal.php">Inicio</a></li>
+                        <li class="breadcrumb-item"><a href="menu_usuario.php?usuario_id=<?php echo $usuario_id; ?>"><?php echo htmlspecialchars($nombre_usuario); ?></a></li>
+                        <li class="breadcrumb-item active" aria-current="page"><?php echo $titulo; ?></li>
+                    </ol>
+                </nav>
                 <h2><?php echo $titulo; ?> de <?php echo htmlspecialchars($nombre_usuario); ?></h2>
                 
                 <!-- Botón de agregar (solo si tiene permiso) -->
@@ -354,6 +438,7 @@ $puede_eliminar = in_array('eliminar', $permisos_crud);
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
+
 
 
 

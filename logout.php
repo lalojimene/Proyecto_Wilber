@@ -1,16 +1,8 @@
 <?php
 session_start();
-require 'conexion.php';
-
-if (isset($_SESSION['usuario'])) {
-    $sql = "UPDATE usuarios SET sesion_token = NULL WHERE nombre = ?";
-    $stmt = $conn->prepare($sql);
-    $stmt->bind_param("s", $_SESSION['usuario']);
-    $stmt->execute();
-}
-
-// Destruir sesión y redirigir al login
+setcookie("jwt", "", time() - 3600, "/", "", false, true); // Expira el JWT
 session_destroy();
-header("Location: login.php");
+header("Location: login.php?expired=1");
 exit();
+
 ?>

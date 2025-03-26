@@ -231,45 +231,49 @@ $conn->close();
                 <main>
                 <?php
 
+require 'conexion.php'; // Asegúrate de incluir la conexión a la base de datos
 
-// Verificar si el usuario ha iniciado sesión
-if (!isset($_SESSION['usuario'])) {
-    header("Location: login.php");
-    exit();
+// Verificar si el usuario está autenticado
+if (!isset($_SESSION['usuario_id'])) {
+    echo "Acceso denegado.";
+    exit;
 }
 
-// Conectar a la base de datos
-$servername = "localhost";
-$username = "root";
-$password = "";
-$dbname = "gerardo_db";
+// Obtener el ID y rol del usuario desde la sesión
+$usuario_id = $_SESSION['usuario_id'];
+$rol = $_SESSION['rol']; // Asegúrate de que en el login se almacena el rol en la sesión
 
-$conn = new mysqli($servername, $username, $password, $dbname);
-if ($conn->connect_error) {
-    die("Conexión fallida: " . $conn->connect_error);
-}
-$conn->set_charset("utf8mb4");
+// Consultar los datos del usuario
+$sql = "SELECT nombre, apellidos, email, celular, mfa_activada FROM usuarios WHERE usuario_id = ?";
+$stmt = $conn->prepare($sql);
+$stmt->bind_param("i", $usuario_id);
+$stmt->execute();
+$result = $stmt->get_result();
+$usuario = $result->fetch_assoc();
 
-// Obtener el usuario_id de la URL
-$usuario_id = isset($_GET['usuario_id']) ? (int)$_GET['usuario_id'] : 0;
-
-// Verificar que el usuario tiene acceso al usuario_id
-if ($usuario_id !== (int)$_SESSION['usuario_id']) {
-    echo "Acceso denegado. No puedes acceder a la información de otro usuario.";
-    exit();
+// Verificar si se encontraron datos
+if (!$usuario) {
+    echo "Usuario no encontrado.";
+    exit;
 }
 
-if ($usuario_id === 0) {
-    echo "Información incompleta.";
-    exit();
+// Verificar si el formulario ha sido enviado para cambiar el estado de MFA
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['toggle_mfa'])) {
+    $mfa_activada = $_POST['mfa_activada'] == '1' ? 1 : 0;
+
+    // Actualizar el estado de MFA en la base de datos
+    $update_sql = "UPDATE usuarios SET mfa_activada = ? WHERE usuario_id = ?";
+    $update_stmt = $conn->prepare($update_sql);
+    $update_stmt->bind_param("ii", $mfa_activada, $usuario_id);
+    $update_stmt->execute();
+
+    // Confirmar que la actualización fue exitosa
+    if ($update_stmt->affected_rows > 0) {
+        echo "<script>alert('Configuración de verificación multifactor actualizada exitosamente.');</script>";
+    } else {
+        echo "<script>alert('Error al actualizar la configuración de MFA.');</script>";
+    }
 }
-
-// Consultar nombre del usuario
-$sql_usuario = "SELECT nombre FROM usuarios WHERE usuario_id = $usuario_id LIMIT 1";
-$result_usuario = $conn->query($sql_usuario);
-$nombre_usuario = ($result_usuario->num_rows > 0) ? $result_usuario->fetch_assoc()['nombre'] : "Usuario desconocido";
-
-$conn->close();
 ?>
 
 <!DOCTYPE html>
@@ -277,171 +281,80 @@ $conn->close();
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Menú de <?php echo htmlspecialchars($nombre_usuario); ?></title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/font-awesome/css/font-awesome.min.css" rel="stylesheet">
+    <title>Perfil de Usuario</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
     <style>
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: #f0f2f5;
-            margin: 0;
-            padding: 0;
-        }
-        .container {
-            max-width: 1000px;
-            margin-top: 40px;
-        }
-        .breadcrumb {
             background-color: #f8f9fa;
-            padding: 15px 25px;
-            border-radius: 5px;
         }
-        .breadcrumb-item a {
+        .perfil-container {
+            max-width: 500px;
+            margin: 50px auto;
+            padding: 20px;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.1);
+            text-align: center;
+        }
+        .perfil-icono {
+            font-size: 80px;
             color: #007bff;
-            text-decoration: none;
-            font-weight: 600;
         }
-        .breadcrumb-item.active {
-            color: #6c757d;
+        .perfil-info {
+            text-align: left;
+            margin-top: 20px;
         }
-        .carousel-card {
-            background: linear-gradient(135deg, rgba(63,94,251,1) 0%, rgba(252,70,107,1) 100%);
-            border-radius: 12px;
-            color: white;
-            padding: 30px;
-            box-shadow: 0px 10px 30px rgba(0, 0, 0, 0.1);
-            transition: transform 0.3s ease, box-shadow 0.3s ease;
-            height: 300px;
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
+        .perfil-info p {
+            font-size: 18px;
+            margin-bottom: 10px;
         }
-        .carousel-card:hover {
-            transform: translateY(-10px);
-            box-shadow: 0px 15px 35px rgba(0, 0, 0, 0.2);
+        .perfil-info strong {
+            color: #333;
         }
-        .carousel-card h5 {
-            font-size: 1.8em;
+        .perfil-info label {
             font-weight: bold;
-        }
-        .carousel-card p {
-            font-size: 1.2em;
-            font-weight: 300;
-        }
-        .carousel-card a {
-            background-color: #007bff;
-            color: white;
-            padding: 10px 20px;
-            border-radius: 25px;
-            font-weight: bold;
-            text-decoration: none;
-            transition: background-color 0.3s ease;
-        }
-        .carousel-card a:hover {
-            background-color: #0056b3;
-        }
-        .carousel-inner {
-            padding: 40px;
-        }
-        .carousel-control-prev, .carousel-control-next {
-            background-color: rgba(0, 0, 0, 0.1);
-            border-radius: 50%;
-        }
-        .carousel-control-prev-icon, .carousel-control-next-icon {
-            filter: invert(100%);
-        }
-        .carousel-caption {
-            position: absolute;
-            top: 20%;
-            left: 50%;
-            transform: translateX(-50%);
-            color: white;
-            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
-            font-size: 3.5em;
-            font-weight: 700;
         }
     </style>
 </head>
 <body>
 
-    <div class="container">
-        <div class="card">
-            <div class="card-body">
-                <!-- Breadcrumb -->
-                <nav aria-label="breadcrumb">
-                    <ol class="breadcrumb">
-                        <li class="breadcrumb-item"><a href="principal.php">Inicio</a></li>
-                        <li class="breadcrumb-item active" aria-current="page"><?php echo htmlspecialchars($nombre_usuario); ?></li>
-                    </ol>
-                </nav>
+<div class="perfil-container">
+    <i class="fa-solid fa-user perfil-icono"></i>
+    <h2 class="mt-3">Perfil de Usuario</h2>
 
-                <!-- Carrusel con la frase "Menú de <?php echo htmlspecialchars($nombre_usuario); ?>" -->
-                <div id="carouselExampleControls" class="carousel slide" data-bs-ride="carousel">
-                    <div class="carousel-inner">
-                        <!-- Primera tarjeta del carrusel -->
-                        <div class="carousel-item active">
-                            <div class="carousel-card">
-                                <div class="carousel-caption">
-                                    🧑‍💻 Menú de <?php echo htmlspecialchars($nombre_usuario); ?> 
-                                </div>
-                            </div>
-                        </div>
+    <div class="perfil-info">
+        <p><strong>Nombre:</strong> <?php echo htmlspecialchars($usuario['nombre']); ?></p>
+        <p><strong>Apellidos:</strong> <?php echo htmlspecialchars($usuario['apellidos']); ?></p>
+        <p><strong>Email:</strong> <?php echo htmlspecialchars($usuario['email']); ?></p>
+        <p><strong>Celular:</strong> <?php echo htmlspecialchars($usuario['celular']); ?></p>
 
-                        <!-- Tarjeta de Materias -->
-                        <div class="carousel-item">
-                            <div class="card carousel-card">
-                                <div class="card-body text-center">
-                                    <h5 class="card-title">📚 Materias</h5>
-                                    <p class="card-text">Accede a las materias disponibles y mejora tus conocimientos. 🧠</p>
-                                    <a href="lista_elementos.php?usuario_id=<?php echo $usuario_id; ?>&tipo=materia">Ver Materias</a>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Tarjeta de Juegos -->
-                        <div class="carousel-item">
-                            <div class="card carousel-card">
-                                <div class="card-body text-center">
-                                    <h5 class="card-title">🎮 Juegos</h5>
-                                    <p class="card-text">Juega y aprende con nuestros juegos interactivos. 🕹️</p>
-                                    <a href="lista_elementos.php?usuario_id=<?php echo $usuario_id; ?>&tipo=juego">Ver Juegos</a>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Tarjeta de Proyectos -->
-                        <div class="carousel-item">
-                            <div class="card carousel-card">
-                                <div class="card-body text-center">
-                                    <h5 class="card-title">🔨 Proyectos</h5>
-                                    <p class="card-text">Participa en proyectos innovadores y desarrolla nuevas habilidades. 🚀</p>
-                                    <a href="lista_elementos.php?usuario_id=<?php echo $usuario_id; ?>&tipo=proyecto">Ver Proyectos</a>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <button class="carousel-control-prev" type="button" data-bs-target="#carouselExampleControls" data-bs-slide="prev">
-                        <span class="carousel-control-prev-icon" aria-hidden="true"></span>
-                        <span class="visually-hidden">Anterior</span>
-                    </button>
-                    <button class="carousel-control-next" type="button" data-bs-target="#carouselExampleControls" data-bs-slide="next">
-                        <span class="carousel-control-next-icon" aria-hidden="true"></span>
-                        <span class="visually-hidden">Siguiente</span>
-                    </button>
-                </div>
-
+        <!-- Opción de activar/desactivar MFA -->
+        <form method="POST" action="">
+            <div class="mb-3">
+                <label for="mfa_activada" class="form-label">Verificación Multifactor (MFA):</label>
+                <select class="form-select" id="mfa_activada" name="mfa_activada">
+                    <option value="1" <?php echo $usuario['mfa_activada'] == 1 ? 'selected' : ''; ?>>Activada</option>
+                    <option value="0" <?php echo $usuario['mfa_activada'] == 0 ? 'selected' : ''; ?>>Desactivada</option>
+                </select>
             </div>
-        </div>
+            <button type="submit" name="toggle_mfa" class="btn btn-primary">Guardar cambios</button>
+        </form>
     </div>
 
-    <!-- Scripts de Bootstrap -->
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Botón para agregar usuarios si el rol es 'admin' -->
+    <?php if ($rol === 'admin'): ?>
+        <a href="panel_usuarios.php" class="btn btn-success mt-3"><i class="fa fa-users"></i> Agregar Usuarios</a>
+    <?php endif; ?>
+
+    <a href="principal.php" class="btn btn-secondary mt-3">Volver</a>
+</div>
+
 </body>
 </html>
 
+</main>
 
-</div>
-            </main>
         </div>
     </div>
 

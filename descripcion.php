@@ -1,11 +1,20 @@
 <?php
 session_start();
 
-// Verificar si el usuario ha iniciado sesión
-if (!isset($_SESSION['usuario'])) {
-    header("Location: login.php");
+// Verificar si la sesión de usuario está activa
+if (!isset($_SESSION['usuario_id'])) {
+    // Si no está activa, redirigir al login
+    header("Location: login.php?expired=1");
     exit();
 }
+
+// Obtener la información del usuario desde la sesión
+$usuario_id = $_SESSION['usuario_id'];
+
+// Verificar si la variable 'nombre' está definida en la sesión
+$nombre_usuario = isset($_SESSION['nombre']) ? $_SESSION['nombre'] : 'Usuario no identificado'; // Valor predeterminado si no está definida
+
+$usuarioRol = $_SESSION['rol'] ?? 'Rol no definido'; // También con valor predeterminado
 
 // Conectar a la base de datos
 $servername = "localhost";
@@ -18,13 +27,31 @@ if ($conn->connect_error) {
     die("Conexión fallida: " . $conn->connect_error);
 }
 $conn->set_charset("utf8mb4");
-// Obtener los datos del usuario actual
-$sqlUsuario = "SELECT usuario_id, nombre, rol FROM usuarios WHERE nombre = '" . $_SESSION['usuario'] . "' LIMIT 1";
-$resultUsuario = $conn->query($sqlUsuario);
-$usuarioActual = $resultUsuario->fetch_assoc();
-$usuarioRol = $usuarioActual['rol'];
 
-// Obtener todos los usuarios con rol 'usuario'
+// Consulta para obtener el nombre del usuario
+$sqlUsuario = "SELECT usuario_id, nombre, rol, sesion_id FROM usuarios WHERE usuario_id = ?";
+$stmtUsuario = $conn->prepare($sqlUsuario);
+$stmtUsuario->bind_param("i", $usuario_id);
+$stmtUsuario->execute();
+$resultUsuario = $stmtUsuario->get_result();
+$usuarioActual = $resultUsuario->fetch_assoc();
+
+// Asignar nombre a la sesión
+$_SESSION['nombre'] = $usuarioActual['nombre'];
+
+
+// Verificar si la sesión corresponde con la registrada en la base de datos
+if ($usuarioActual['sesion_id'] !== session_id()) {
+    // Si las sesiones no coinciden, cerrar sesión y mostrar mensaje
+    session_destroy();
+    echo "<script>
+            alert('Tu sesión fue cerrada desde otro dispositivo.');
+            window.location.href = 'login.php';
+          </script>";
+    exit();
+}
+
+// Obtener los usuarios con rol 'usuario'
 $sqlUsuarios = "SELECT usuario_id, nombre FROM usuarios WHERE rol = 'usuario'";
 $resultUsuarios = $conn->query($sqlUsuarios);
 
@@ -39,8 +66,11 @@ while ($usuario = $resultUsuarios->fetch_assoc()) {
         LEFT JOIN materias m ON a.materia_id = m.materia_id
         LEFT JOIN juegos j ON a.juego_id = j.juego_id
         LEFT JOIN proyectos p ON a.proyecto_id = p.proyecto_id
-        WHERE a.usuario_id = " . $usuario['usuario_id'];
-    $resultAccesos = $conn->query($sqlAccesos);
+        WHERE a.usuario_id = ?";
+    $stmtAccesos = $conn->prepare($sqlAccesos);
+    $stmtAccesos->bind_param("i", $usuario['usuario_id']);
+    $stmtAccesos->execute();
+    $resultAccesos = $stmtAccesos->get_result();
 
     $accesos = [];
     while ($row = $resultAccesos->fetch_assoc()) {
@@ -53,8 +83,30 @@ while ($usuario = $resultUsuarios->fetch_assoc()) {
     ];
 }
 
+// Aquí cierras la conexión
 $conn->close();
 ?>
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Página Principal</title>
+
+    <script>
+        // 🔥 Cerrar sesión automáticamente después de 3 minutos (180,000 ms)
+        setTimeout(function () {
+            alert("Tu sesión ha expirado. Serás redirigido al inicio de sesión.");
+            window.location.href = "logout.php";
+        }, 180000); // 3 minutos en milisegundos
+    </script>
+</head>
+<body>
+    
+</body>
+</html>
+
 
 <!DOCTYPE html>
 <html lang="es">
@@ -79,16 +131,19 @@ $conn->close();
         <ul class="navbar-nav ml-auto mr-0 mr-md-3 my-2 my-md-0">
             <li class="nav-item dropdown">
                 <a class="nav-link dropdown-toggle" id="userDropdown" href="#" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
-                    <i class="fas fa-user fa-fw"></i> <?php echo $_SESSION['usuario']; ?>
+                    <i class="fas fa-user fa-fw"></i> <?php echo $nombre_usuario; ?>
                 </a>
                 <div class="dropdown-menu dropdown-menu-right" aria-labelledby="userDropdown">
-                    <a class="dropdown-item" href="#">Configuración</a>
+                    <a class="dropdown-item" href="perfil.php">Configuración</a>
                     <div class="dropdown-divider"></div>
                     <a class="dropdown-item" href="logout.php">Salir</a>
                 </div>
             </li>
         </ul>
     </nav>
+
+
+
 
     <div id="layoutSidenav">
         <!-- Sidebar -->
@@ -172,8 +227,10 @@ $conn->close();
         <!-- Contenido principal -->
         <div id="layoutSidenav_content">
             <main>
-                <div class="container-fluid"><?php
+                <div class="container-fluid">
+                <main><?php
 // Verificar si el usuario ha iniciado sesión
+
 
 if (!isset($_SESSION['usuario'])) {
     header("Location: login.php");
@@ -196,10 +253,14 @@ $conn->set_charset("utf8mb4");
 $id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 $tipo = isset($_GET['tipo']) ? $_GET['tipo'] : '';
 
+// Verificar que los parámetros de la URL sean válidos
 if ($id === 0 || empty($tipo)) {
     echo "Información incompleta.";
     exit();
 }
+
+// Verificar si el usuario tiene acceso a la entidad solicitada
+$usuario_id = $_SESSION['usuario_id'];  // Suponiendo que el ID del usuario está guardado en la sesión
 
 // Definir la tabla y las columnas según el tipo
 switch ($tipo) {
@@ -208,7 +269,7 @@ switch ($tipo) {
                 FROM materias m
                 JOIN accesos a ON m.materia_id = a.materia_id
                 JOIN usuarios u ON a.usuario_id = u.usuario_id
-                WHERE m.materia_id = $id LIMIT 1";
+                WHERE m.materia_id = $id AND u.usuario_id = $usuario_id LIMIT 1";
         $titulo = 'Materia';
         break;
     case 'juego':
@@ -216,7 +277,7 @@ switch ($tipo) {
                 FROM juegos j
                 JOIN accesos a ON j.juego_id = a.juego_id
                 JOIN usuarios u ON a.usuario_id = u.usuario_id
-                WHERE j.juego_id = $id LIMIT 1";
+                WHERE j.juego_id = $id AND u.usuario_id = $usuario_id LIMIT 1";
         $titulo = 'Juego';
         break;
     case 'proyecto':
@@ -224,7 +285,7 @@ switch ($tipo) {
                 FROM proyectos p
                 JOIN accesos a ON p.proyecto_id = a.proyecto_id
                 JOIN usuarios u ON a.usuario_id = u.usuario_id
-                WHERE p.proyecto_id = $id LIMIT 1";
+                WHERE p.proyecto_id = $id AND u.usuario_id = $usuario_id LIMIT 1";
         $titulo = 'Proyecto';
         break;
     default:
@@ -232,6 +293,7 @@ switch ($tipo) {
         exit();
 }
 
+// Ejecutar la consulta para verificar si el usuario tiene acceso
 $result = $conn->query($sql);
 
 if ($result->num_rows > 0) {
@@ -239,7 +301,7 @@ if ($result->num_rows > 0) {
     $nombre_usuario = $descripcion['usuario_nombre'];
     $usuario_id = $descripcion['usuario_id'];
 } else {
-    echo "No se encontró la descripción.";
+    echo "No tienes acceso a esta entidad o la entidad no existe.";
     exit();
 }
 
@@ -332,37 +394,9 @@ $conn->close();
         </div>
     </div>
 
-    <script>
-        // Función para hacer la solicitud de los datos de manera asíncrona
-        async function cargarDescripcion(id, tipo) {
-            try {
-                let response = await fetch(`descripcion_ajax.php?id=${id}&tipo=${tipo}`);
-                if (!response.ok) throw new Error('Error al cargar los datos');
-                
-                let data = await response.json();
-                if (data.error) {
-                    console.error(data.error);
-                    alert('Hubo un problema al obtener la descripción.');
-                    return;
-                }
-
-                // Actualizar el DOM con los datos obtenidos
-                document.getElementById('descripcion-texto').innerHTML = data.descripcion;
-            } catch (error) {
-                console.error('Error en la solicitud:', error);
-            }
-        }
-
-        // Cargar la descripción al iniciar la página
-        window.onload = () => {
-            let id = <?php echo $id; ?>;
-            let tipo = "<?php echo $tipo; ?>";
-            cargarDescripcion(id, tipo);
-        };
-    </script>
-
 </body>
 </html>
+
 
 </main>
         </div>

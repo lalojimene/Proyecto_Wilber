@@ -1,35 +1,57 @@
 <?php
 session_start();
-require 'conexion.php';
 
-// Verificar si el usuario ha iniciado sesión y si existe el token de sesión
-if (!isset($_SESSION['usuario']) || !isset($_SESSION['sesion_token'])) {
-    header("Location: login.php");
+// Verificar si la sesión de usuario está activa
+if (!isset($_SESSION['usuario_id'])) {
+    // Si no está activa, redirigir al login
+    header("Location: login.php?expired=1");
     exit();
 }
 
-// Obtener el token de sesión desde la base de datos para el usuario actual
-$sql = "SELECT sesion_token FROM usuarios WHERE nombre = ?";
-$stmt = $conn->prepare($sql);
-$stmt->bind_param("s", $_SESSION['usuario']);
-$stmt->execute();
-$result = $stmt->get_result();
-$row = $result->fetch_assoc();
+// Obtener la información del usuario desde la sesión
+$usuario_id = $_SESSION['usuario_id'];
 
-// Verificar si el token de la sesión actual coincide con el token de la base de datos
-if (!$row || $row['sesion_token'] !== $_SESSION['sesion_token']) {
-    session_destroy(); // Destruir la sesión actual
-    echo "<script>alert('¡Tu sesión se cerró en otro dispositivo!'); window.location='login.php';</script>";
-    exit();
+// Verificar si la variable 'nombre' está definida en la sesión
+$nombre_usuario = isset($_SESSION['nombre']) ? $_SESSION['nombre'] : 'Usuario no identificado'; // Valor predeterminado si no está definida
+
+$usuarioRol = $_SESSION['rol'] ?? 'Rol no definido'; // También con valor predeterminado
+
+// Conectar a la base de datos
+$servername = "localhost";
+$username = "root";
+$password = "";
+$dbname = "gerardo_db";
+
+$conn = new mysqli($servername, $username, $password, $dbname);
+if ($conn->connect_error) {
+    die("Conexión fallida: " . $conn->connect_error);
 }
+$conn->set_charset("utf8mb4");
 
-// Obtener los datos del usuario actual
-$sqlUsuario = "SELECT usuario_id, nombre, rol FROM usuarios WHERE nombre = '" . $_SESSION['usuario'] . "' LIMIT 1";
-$resultUsuario = $conn->query($sqlUsuario);
+// Consulta para obtener el nombre del usuario
+$sqlUsuario = "SELECT usuario_id, nombre, rol, sesion_id FROM usuarios WHERE usuario_id = ?";
+$stmtUsuario = $conn->prepare($sqlUsuario);
+$stmtUsuario->bind_param("i", $usuario_id);
+$stmtUsuario->execute();
+$resultUsuario = $stmtUsuario->get_result();
 $usuarioActual = $resultUsuario->fetch_assoc();
-$usuarioRol = $usuarioActual['rol'];
 
-// Obtener todos los usuarios con rol 'usuario'
+// Asignar nombre a la sesión
+$_SESSION['nombre'] = $usuarioActual['nombre'];
+
+
+// Verificar si la sesión corresponde con la registrada en la base de datos
+if ($usuarioActual['sesion_id'] !== session_id()) {
+    // Si las sesiones no coinciden, cerrar sesión y mostrar mensaje
+    session_destroy();
+    echo "<script>
+            alert('Tu sesión fue cerrada desde otro dispositivo.');
+            window.location.href = 'login.php';
+          </script>";
+    exit();
+}
+
+// Obtener los usuarios con rol 'usuario'
 $sqlUsuarios = "SELECT usuario_id, nombre FROM usuarios WHERE rol = 'usuario'";
 $resultUsuarios = $conn->query($sqlUsuarios);
 
@@ -44,8 +66,11 @@ while ($usuario = $resultUsuarios->fetch_assoc()) {
         LEFT JOIN materias m ON a.materia_id = m.materia_id
         LEFT JOIN juegos j ON a.juego_id = j.juego_id
         LEFT JOIN proyectos p ON a.proyecto_id = p.proyecto_id
-        WHERE a.usuario_id = " . $usuario['usuario_id'];
-    $resultAccesos = $conn->query($sqlAccesos);
+        WHERE a.usuario_id = ?";
+    $stmtAccesos = $conn->prepare($sqlAccesos);
+    $stmtAccesos->bind_param("i", $usuario['usuario_id']);
+    $stmtAccesos->execute();
+    $resultAccesos = $stmtAccesos->get_result();
 
     $accesos = [];
     while ($row = $resultAccesos->fetch_assoc()) {
@@ -58,8 +83,29 @@ while ($usuario = $resultUsuarios->fetch_assoc()) {
     ];
 }
 
+// Aquí cierras la conexión
 $conn->close();
 ?>
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Página Principal</title>
+
+    <script>
+        // 🔥 Cerrar sesión automáticamente después de 3 minutos (180,000 ms)
+        setTimeout(function () {
+            alert("Tu sesión ha expirado. Serás redirigido al inicio de sesión.");
+            window.location.href = "logout.php";
+        }, 180000); // 3 minutos en milisegundos
+    </script>
+</head>
+<body>
+    
+</body>
+</html>
 
 
 <!DOCTYPE html>
@@ -85,16 +131,19 @@ $conn->close();
         <ul class="navbar-nav ml-auto mr-0 mr-md-3 my-2 my-md-0">
             <li class="nav-item dropdown">
                 <a class="nav-link dropdown-toggle" id="userDropdown" href="#" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
-                    <i class="fas fa-user fa-fw"></i> <?php echo $_SESSION['usuario']; ?>
+                    <i class="fas fa-user fa-fw"></i> <?php echo $nombre_usuario; ?>
                 </a>
                 <div class="dropdown-menu dropdown-menu-right" aria-labelledby="userDropdown">
-                    <a class="dropdown-item" href="#">Configuración</a>
+                    <a class="dropdown-item" href="perfil.php">Configuración</a>
                     <div class="dropdown-divider"></div>
                     <a class="dropdown-item" href="logout.php">Salir</a>
                 </div>
             </li>
         </ul>
     </nav>
+
+
+
 
     <div id="layoutSidenav">
         <!-- Sidebar -->
@@ -179,10 +228,15 @@ $conn->close();
         <div id="layoutSidenav_content">
             <main>
                 <div class="container-fluid">
-                    <h1 class="mt-4">Bienvenido a tu página principal</h1>
-                    <p>Aquí verás todas las materias, juegos y proyectos según tu rol.</p>
-                </div>
-            </main>
+                <main>
+    <div class="container-fluid">
+        <h1 class="mt-4">Bienvenido al Sistema Web</h1>
+        <div class="text-center mt-4">
+            <a href="buscador.php" class="btn btn-primary">Buscador</a>
+        </div>
+    </div>
+</main>
+
         </div>
     </div>
 
@@ -201,11 +255,6 @@ $conn->close();
                 });
             }
         });
-
-        // Recargar la página cada 10 segundos
-        setTimeout(function(){
-            location.reload();
-        }, 10000); // 10000 milisegundos = 10 segundos
     </script>
 
 </body>
